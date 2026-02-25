@@ -10,6 +10,7 @@ import (
 	"os/signal"
 	"time"
 
+	"github.com/lmittmann/tint"
 	"github.com/ndbaker1/regi/registry"
 	"github.com/ndbaker1/regi/store"
 )
@@ -103,5 +104,5 @@ func newLogger() *slog.Logger {
 		fmt.Fprintf(os.Stderr, "unknown log level: %s\n", logLevel)
 		os.Exit(1)
 	}
-	return slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: level}))
+	return slog.New(tint.NewHandler(os.Stderr, &tint.Options{Level: level}))
 }
