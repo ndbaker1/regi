@@ -1,7 +1,10 @@
-# Regi
-
-Use an image store like Docker as a real OCI image registry to simplify pulls of
-locally built images.
+<p align="center">
+	<h1 align="center">Regi <img width="32" height="32" alt="image" src="https://github.com/user-attachments/assets/e7390c74-c5c1-4ac8-9686-7c99a34a3c66" /></h1>
+</p>
+<p align="center">
+    Use an image store like Docker as a real OCI image registry to simplify pulls of
+    locally built images.
+</p>
 
 ## Installation
 
