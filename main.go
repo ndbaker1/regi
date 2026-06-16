@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/lmittmann/tint"
+	"github.com/ndbaker1/regi/cli"
 	"github.com/ndbaker1/regi/registry"
 	"github.com/ndbaker1/regi/store"
 )
@@ -39,14 +40,16 @@ const (
 )
 
 var (
-	addr     string
-	logLevel string
+	addr                 string
+	logLevel             string
+	pullThroughAllowlist cli.RegexpList
 )
 
 func init() {
 	// parse flags as a pre-setup before main.
 	flag.StringVar(&addr, "addr", defaultAddr, "listen address")
 	flag.StringVar(&logLevel, "log-level", defaultLogLevel, "log level (debug, info, warn, error)")
+	flag.Var(&pullThroughAllowlist, "pull-through-allow", "regex matching repository names eligible for pull-through from upstream; repeatable; omit to disable pull-through")
 	flag.Parse()
 }
 
@@ -64,14 +67,14 @@ func main() {
 
 	srv := &http.Server{
 		Addr:         addr,
-		Handler:      registry.New(store.NewStore(s, logger), logger),
+		Handler:      registry.New(store.NewStore(s, logger, pullThroughAllowlist), logger),
 		ReadTimeout:  serverReadTimeout,
 		WriteTimeout: serverWriteTimeout,
 		IdleTimeout:  serverIdleTimeout,
 	}
 
 	go func() {
-		logger.Info("starting registry", "addr", addr)
+		logger.Info("starting registry", "addr", addr, "pull-through", pullThroughAllowlist.String())
 		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			logger.Error("server error", "error", err)
 			os.Exit(1)

@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"regexp"
 	"strings"
 
 	"github.com/distribution/reference"
@@ -66,6 +67,7 @@ type StoreClient interface {
 	ImageList(context.Context, client.ImageListOptions) (client.ImageListResult, error)
 	ImageSave(context.Context, []string, ...client.ImageSaveOption) (client.ImageSaveResult, error)
 	ImageInspect(context.Context, string, ...client.ImageInspectOption) (client.ImageInspectResult, error)
+	Pull(ctx context.Context, ref string) error
 	BuildRef(repo, ref string) (string, error)
 }
 
@@ -74,10 +76,44 @@ type StoreClient interface {
 type Store struct {
 	client StoreClient
 	log    *slog.Logger
+	// pullAllow lists the repository-name patterns eligible for pull-through.
+	// When empty, pull-through is disabled (deny by default).
+	pullAllow []*regexp.Regexp
 }
 
-func NewStore(client StoreClient, log *slog.Logger) *Store {
-	return &Store{client: client, log: log}
+func NewStore(client StoreClient, log *slog.Logger, pullAllow []*regexp.Regexp) *Store {
+	return &Store{client: client, log: log, pullAllow: pullAllow}
+}
+
+// pullThroughAllowed reports whether repo is eligible for pull-through. An
+// empty allow set means pull-through is disabled, so nothing is allowed.
+func (s *Store) pullThroughAllowed(repo string) bool {
+	for _, re := range s.pullAllow {
+		if re.MatchString(repo) {
+			return true
+		}
+	}
+	return false
+}
+
+// pullThrough pulls the reconstructed image from its upstream registry into the
+// local store if it is covered by the allowlisted patterns. It returns true if
+// a pull was attempted and succeeded, so the caller can retry its local lookup.
+func (s *Store) pullThrough(ctx context.Context, repo, ref string) bool {
+	if !s.pullThroughAllowed(repo) {
+		return false
+	}
+	pullRef, err := s.client.BuildRef(repo, ref)
+	if err != nil {
+		s.log.Debug("pull-through: bad ref", "repo", repo, "ref", ref, "error", err)
+		return false
+	}
+	s.log.Info("pulling through", "ref", pullRef)
+	if err := s.client.Pull(ctx, pullRef); err != nil {
+		s.log.Error("pull-through failed", "ref", pullRef, "error", err)
+		return false
+	}
+	return true
 }
 
 // resolveFullRef resolves a repo path + ref (tag or digest) to a full Docker
@@ -186,7 +222,15 @@ func (s *Store) ResolveManifest(ctx context.Context, repo, ref string) ([]byte, 
 
 	dockerRef, err := s.resolveFullRef(ctx, repo, ref)
 	if err != nil {
-		return nil, "", "", err
+		// try to pull and cache if its possible. then allow retrying resolution
+		// if successfull.
+		if !s.pullThrough(ctx, repo, ref) {
+			return nil, "", "", err
+		}
+		dockerRef, err = s.resolveFullRef(ctx, repo, ref)
+		if err != nil {
+			return nil, "", "", err
+		}
 	}
 
 	ic, err := s.extractImage(ctx, dockerRef)
